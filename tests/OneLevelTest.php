@@ -1,13 +1,17 @@
 <?php
-class OneLevelTest extends PHPUnit_Framework_TestCase
+require_once('./BaseTestCase.php');
+
+class OneLevelTest extends BaseTestCase
 {
     protected function setUp()
     {
         parent::setUp();
     }
 
-    public function testDummy() {
-        $this->assertTrue(true);
+    public function testCanCreateEmptyRoute() {
+        $route = new RecursiveRoute();
+
+        $this->assertTrue($route instanceof RecursiveRoute);
     }
 
  }

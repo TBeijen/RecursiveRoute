@@ -10,7 +10,7 @@ class RecursiveRoute_AllTests
 
     public static function suite()
     {
-        $suite = new PHPUnit_Framework_TestSuite('RecursiveRoute');
+        $suite = new PHPUnit_Framework_TestSuite('RecursiveRouteTestSuite');
         $suite->addTestSuite('OneLevelTest');
         return $suite;
     }
