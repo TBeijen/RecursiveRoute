@@ -2,6 +2,8 @@
 require_once('RecursiveRoute.php');
 
 
+var_dump (explode('/',''));
+
 
 
 $Root = new RecursiveRoute;

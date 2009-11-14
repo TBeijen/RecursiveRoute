@@ -1,17 +1,17 @@
 <?php
+class RecursiveRoute_InvalidArgument_Exception extends InvalidArgumentException {}
+
 /**
  * @TODO validators
  * @TODO defaults
- * @TODO subroutes restricted to certain param values
  * @TODO match callback
+ * @TODO subroutes restricted to certain param values (isn't that same as validators, no)
  * 
+ * @TODO urlencode/htmlencode = createFilters filters
  *
  *
  *
  */
-
-
-
 class RecursiveRoute
 {
     const SEPARATOR = '/';
@@ -22,6 +22,14 @@ class RecursiveRoute
      * @var string
      */
 	private $pattern = '';
+
+    /**
+     * Tells it this is the root-route or a subroute.
+     * Will be set by addRoute()
+     * 
+     * @var boolean
+     */
+    private $isSubRoute = false;
 
     /**
      * List of optional regexp validator patterns for variables
@@ -84,9 +92,18 @@ class RecursiveRoute
     /**
      * Will add a subroute to this route
      *
-     * @param RecursiveRoute $route
+     * @param $route
      */
-	public function addRoute( RecursiveRoute $route ) {
+	public function addRoute( $route ) {
+        if ( is_string($route) ) {
+            $route = new RecursiveRoute($route);
+        }
+        if (!($route instanceof RecursiveRoute)) {
+            throw new RecursiveRoute_InvalidArgument_Exception(
+                __METHOD__.': Arguement should be string or RecursiveRoute object'
+            );
+        }
+        $route->setSubRoute();
 		array_push($this->subRoutes, $route);
 	}
 
@@ -109,24 +126,25 @@ class RecursiveRoute
      * @return array
      */
 	public function parseUrl( $url ) {
-		if ( !$this->isParseMatch( $url ) ) {
-			return array();
-		}
-
 		$urlParts = $this->explode( $url );
 
         // the array holding params parsed by this router
 		$collectedParams = array();
 
-		for ( $i=0; $i<count($this->patternParts); $i++ ) {
-			$partPattern = $this->patternParts[$i];
-			$partUrl = $urlParts[$i];
+        // only self collect params if parseMatch
+        // (Only occcurs in root route as this method is not called on
+        // subroutes if they're not a match)
+        if ($this->isParseMatch($url)) {
+            for ( $i=0; $i<count($this->patternParts); $i++ ) {
+                $partPattern = $this->patternParts[$i];
+                $partUrl = $urlParts[$i];
 
-			if ($partPattern[0] === ':') {
-				$paramName = substr($partPattern, 1);
-				$collectedParams[$paramName] = $partUrl;
-			}
-		}
+                if ($partPattern[0] === ':') {
+                    $paramName = substr($partPattern, 1);
+                    $collectedParams[$paramName] = $partUrl;
+                }
+            }
+        }
 
         // construct partial url that gets passed to subroutes
 		$urlRemainingParts = array_slice($urlParts, count($this->patternParts));
@@ -171,11 +189,48 @@ class RecursiveRoute
      * @return string
      */
 	public function createUrl($params = array() ) {
-        $urlParts = $this->collectUrlParts($params);
-        $url = self::SEPARATOR
-             . implode(self::SEPARATOR,$urlParts)
-             . self::SEPARATOR;
+        if (!is_array($params)) {
+            throw new RecursiveRoute_InvalidArgument_Exception(
+                __METHOD__.', Invalid argument: '.var_export($params,true)
+            );
+        }
 
+        // no problem if not a create match (delegate to children) unless
+        // this route has a defined pattern and no params are given.
+        if (
+            !$this->isCreateMatch($params) &&
+            count($params) < count($this->requiredParamList)
+        ) {
+            throw new RecursiveRoute_InvalidArgument_Exception(
+                __METHOD__.', Missing required array keys for creating url'
+            );
+        }
+
+        // call recursive method that creates url parts
+        $collectResult = $this->collectUrlParts($params);
+        $urlParts = $collectResult['parts'];
+        $paramsProcessed = $collectResult['paramsProcessed'];
+
+        // add any unprocessed param as last url part
+        $paramsNotProcessed = $params;
+        foreach($paramsProcessed as $key) {
+            unset($paramsNotProcessed[$key]);
+        }
+        $unprocParamUrlPart = $this->constructUrlFromExcessParams($paramsNotProcessed);
+        $urlParts[] = $unprocParamUrlPart['parts'];
+
+        // create url
+        $urlChunks = array();
+        foreach($urlParts as $part) {
+            if (count($part)) {
+                $urlChunks[] = implode(self::SEPARATOR,$part);
+            }
+        }
+
+        $url = implode(self::SEPARATOR,$urlChunks);
+        if ($url!='' && $url!='/') {
+            $url = self::SEPARATOR . $url . self::SEPARATOR;
+        }
         return $url;
     }
 
@@ -187,12 +242,17 @@ class RecursiveRoute
      * @param array $paramsLeft
      * @return array
      */
-    private function collectUrlParts(array $paramsLeft) {
+    protected function collectUrlParts(array $paramsLeft) {
         $currentUrlParts = array();
+        $paramsProcessed = array();
         if( $this->isCreateMatch($paramsLeft)) {
-            $constructedPart = $this->constructUrl($paramsLeft);
+            $constructResult = $this->constructUrl($paramsLeft);
+
+            $constructedPart = $constructResult['parts'];
+            $paramsProcessed = $constructResult['paramsProcessed'];
+            
             // only add if not empty (likely the 'root' Route)
-            if ($constructedPart != '') {
+            if (count($constructedPart) != 0) {
                 $currentUrlParts[] = $constructedPart;
             }
 
@@ -206,7 +266,12 @@ class RecursiveRoute
             $subRouteMatched = false;
             $subRoutes = array_reverse($this->subRoutes);
             foreach ($subRoutes as $subRoute) {
-                $returnedUrlParts = $subRoute->collectUrlParts($truncatedParamsLeft);
+                $collectResult = $subRoute->collectUrlParts($truncatedParamsLeft);
+                $returnedUrlParts = $collectResult['parts'];
+                $paramsProcessed = array_merge(
+                    $paramsProcessed,
+                    $collectResult['paramsProcessed']
+                );
                 if (count($returnedUrlParts)>0) {
                     foreach( $returnedUrlParts as $part ) {
                         $currentUrlParts[] = $part;
@@ -215,18 +280,13 @@ class RecursiveRoute
                     break;
                 }
             }
-
-            // if no subroute has added an url part we're left with some params
-            // -> add as key1/value1/key2/value2 url part
-            // @TODO add urlencode
-            if ($subRouteMatched !== true) {
-                foreach($truncatedParamsLeft as $key=>$value) {
-                    $currentUrlParts[] = $key . self::SEPARATOR . $value;
-                }
-            }
         }
 
-        return $currentUrlParts;
+        $return = array(
+            'parts' => $currentUrlParts,
+            'paramsProcessed' => $paramsProcessed
+        );
+        return $return;
     }
 
 
@@ -235,16 +295,35 @@ class RecursiveRoute
      * A Route is only then a match if all the required parameters
      * are provided in $paramHash
      *
+     * Exception: If this route doesn't have any required parts, has subRoutes,
+     * and is not the root route, at least one of the children has to match for this route
+     * to be considered a match
+     *
      * @param array $paramHash
      * @return boolean
      */
-    private function isCreateMatch($paramHash) {
-       	$match = true;
-		foreach($this->requiredParamList as $paramName) {
-			if( !isset($paramHash[$paramName])) {
-				$match = false;
-			}
-		}
+    protected function isCreateMatch($paramHash) {
+        if (
+            $this->isSubRoute==true &&
+            count($this->subRoutes)>0 &&
+            count($this->requiredParamList)==0
+        ) {
+            $match = false;
+            $subRoutes = array_reverse($this->subRoutes);
+            foreach ($subRoutes as $subRoute) {
+                if ($subRoute->isCreateMatch($paramHash)) {
+                    $match = true;
+                    break;
+                }
+            }
+        } else {
+           	$match = true;
+            foreach($this->requiredParamList as $paramName) {
+                if( !isset($paramHash[$paramName])) {
+                    $match = false;
+                }
+            }
+        }
         return $match;
     }
 
@@ -254,14 +333,18 @@ class RecursiveRoute
      * A route is a parse match if the given url is at least as long and if
      * all non variable url parts match that of the pattern.
      *
+     * @TODO if not root router and itself has no required parts,
+     * it should delegate to subroutes.
+     *
      * @param string $url
      * @return boolean
      */
-	private function isParseMatch($url = null) {
+	protected function isParseMatch($url = null) {
         // @TODO check this
-		if ($this->pattern=='' && count($this->subRoutes) <=0 ) {
-			return false;
-		}
+		if (count($this->patternParts)==0 && count($this->subRoutes)==0) return false;
+//        if ($this->pattern=='' && count($this->subRoutes) <=0 ) {
+//			return false;
+//		}
 
 		$urlParts = $this->explode($url);
 
@@ -301,20 +384,63 @@ class RecursiveRoute
      */
 	protected function constructUrl($params = array()) {
         $constructedUrlParts = array();
+        $paramsProcessed = array();
         foreach($this->patternParts as $part) {
             if ($part[0] === ':') {
 					// variable, get it from params
                     $paramName = substr($part, 1);
                     $constructedUrlParts[] = isset($params[$paramName]) ? $params[$paramName] : '';
+                    $paramsProcessed[] = $paramName;
 				} else {
                     // simply add
                     $constructedUrlParts[] = $part;
 				}
         }
-        $constructedUrl = implode(self::SEPARATOR, $constructedUrlParts);
 
-        return $constructedUrl;
+        $return = array(
+            'parts' => $constructedUrlParts,
+            'paramsProcessed' => $paramsProcessed
+        );
+
+        return $return;
 	}
+
+
+    /**
+     * Creates an url of excess params as key/value combinations
+     *
+     * @TODO url encode
+     *
+     * @param array $params
+     * @return array
+     */
+	protected function constructUrlFromExcessParams($params = array()) {
+        $constructedUrlParts = array();
+        $paramsProcessed = array();
+
+        foreach($params as $key=>$value) {
+            $constructedUrlParts[] = $key;
+            $constructedUrlParts[] = $value;
+            $paramsProcessed[] = $key;
+        }
+
+        $return = array(
+            'parts' => $constructedUrlParts,
+            'paramsProcessed' => $paramsProcessed
+        );
+
+        return $return;
+	}
+
+
+    /**
+     * Marks the route object as being a subroute
+     *
+     * @param boolean $value
+     */
+    protected function setSubRoute($value=true) {
+        $this->isSubRoute = (boolean) $value;
+    }
 
 
     /**
@@ -323,7 +449,7 @@ class RecursiveRoute
      * @param string $urlPart
      * @return array
      */
-	private function explode($urlPart) {
+	protected function explode($urlPart) {
 		$urlTrimmed = trim(trim($urlPart, self::SEPARATOR));
 
 		$parts = array();
@@ -340,7 +466,7 @@ class RecursiveRoute
      * 
      * @param array $pattern_parts
      */
-	private function buildParamLists( $pattern_parts = array() ) {
+	protected function buildParamLists( $pattern_parts = array() ) {
 		$arr_params = array();
 		foreach ($pattern_parts as $part_pattern ) {
 			if ( $part_pattern[0] === ':' ) {

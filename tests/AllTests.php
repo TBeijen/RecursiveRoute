@@ -1,5 +1,7 @@
 <?php
+require_once dirname(__FILE__) . '/EmptyRouteTest.php';
 require_once dirname(__FILE__) . '/OneLevelTest.php';
+require_once dirname(__FILE__) . '/RecursiveTest.php';
 
 class RecursiveRoute_AllTests
 {
@@ -11,7 +13,9 @@ class RecursiveRoute_AllTests
     public static function suite()
     {
         $suite = new PHPUnit_Framework_TestSuite('RecursiveRouteTestSuite');
+        $suite->addTestSuite('EmptyRouteTest');
         $suite->addTestSuite('OneLevelTest');
+        $suite->addTestSuite('RecursiveTest');
         return $suite;
     }
 }
