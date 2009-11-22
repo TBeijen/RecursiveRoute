@@ -114,6 +114,37 @@ class RecursiveTest extends BaseTestCase
         $this->assertEquals($url,'/page/123/myTitle/key1/value1/');
     }
 
+    public function testParsingParsesKeyValuePairs() {
+        $route = $this->getThreeLevelRoute();
+
+        $parsed = $route->parseUrl('page/123/myTitle/param1/value1');
+        $this->assertArrayHasKey('page_id', $parsed);
+        $this->assertArrayHasKey('page_title', $parsed);
+        $this->assertArrayHasKey('param1', $parsed);
+        $this->assertEquals($parsed['param1'], 'value1');
+
+        // this will consider 'param1' to be the page-title
+        $parsed = $route->parseUrl('page/123/param1/value1');
+        $this->assertArrayHasKey('page_id', $parsed);
+        $this->assertArrayHasKey('page_title', $parsed);
+        $this->assertArrayNotHasKey('param1', $parsed);
+        $this->assertEquals($parsed['page_title'], 'param1');
+    }
+
+    public function testCreatingAddsKeyValuePairs() {
+        $route = $this->getThreeLevelRoute();
+
+        $url = $route->createUrl(array('param1'=>'value1'));
+        $this->assertEquals($url, '/param1/value1/' );
+
+        $url = $route->createUrl(array(
+            'year'=>'2009',
+            'month'=>11,
+            'param1'=>'value1'
+        ));
+        $this->assertEquals($url, '/news/archive/2009/11/param1/value1/' );
+    }
+
     protected function getThreeLevelRoute() {
         $route = new RecursiveRoute('/');
 

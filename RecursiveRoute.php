@@ -109,15 +109,37 @@ class RecursiveRoute
 
 
     /**
-     * Will set validators.
-     *
-     * @author [tb] 2009 oct 28
+     * Will set defaults for given parameters
+     * @param array $defaults
+     */
+    public function setDefaults(array $defaults) {
+        foreach($defaults as $key=>$value) {
+            if(is_numeric($key)) {
+                throw new RecursiveRoute_InvalidArgument_Exception(
+                    __METHOD__.': $defaults should be an assoc. array'
+                );
+            }
+            unset ($this->requiredParamList[$key]);
+        }
+        $this->defaults = $defaults;
+    }
+
+
+    /**
+     * Will set validators for given parameters
      * @param array $validators
      */
     public function setValidators(array $validators) {
+        foreach($validators as $key=>$value) {
+            if(is_numeric($key)) {
+                throw new RecursiveRoute_InvalidArgument_Exception(
+                    __METHOD__.': $validaors should be an assoc. array'
+                );
+            }
+        }
         $this->validators = $validators;
     }
-    
+
 
     /**
      * Will parse a given url and return an array containing parameters
@@ -321,6 +343,13 @@ class RecursiveRoute
             foreach($this->requiredParamList as $paramName) {
                 if( !isset($paramHash[$paramName])) {
                     $match = false;
+                } elseif (isset($this->validators[$paramName])) {
+                     if (!preg_match(
+                        $this->validators[$paramName],
+                        $paramHash[$paramName]
+                     )) {
+                        $match = false;
+                     }
                 }
             }
         }
@@ -341,10 +370,9 @@ class RecursiveRoute
      */
 	protected function isParseMatch($url = null) {
         // @TODO check this
-		if (count($this->patternParts)==0 && count($this->subRoutes)==0) return false;
-//        if ($this->pattern=='' && count($this->subRoutes) <=0 ) {
-//			return false;
-//		}
+		if (count($this->patternParts)==0 && count($this->subRoutes)==0) {
+            return false;
+        }
 
 		$urlParts = $this->explode($url);
 
@@ -361,7 +389,17 @@ class RecursiveRoute
 				$partUrl = $urlParts[$i];
 
 				if ( $partPattern[0] === ':') {
-					// param
+					// param, check if a validator exists
+                    $paramName = substr($partPattern, 1);
+                    if (isset($this->validators[$paramName])) {
+                        if (!preg_match(
+                            $this->validators[$paramName],
+                            $partUrl
+                        )) {
+                            $match = false;
+                            break;
+                        }
+                    }
 				} elseif ($partPattern !== $partUrl) {
 					$match = false;
 					break;
