@@ -40,6 +40,21 @@ class DefaultsTest extends BaseTestCase
         ));
     }
 
+    public function testDefaultsCanBeSuppliedInConstructor() {
+        $route = new RecursiveRoute(
+            '/page/:page_id/',
+            array(
+                'defaults' => array(
+                    'page_id' => 10
+                )
+            )
+        );
+
+        $parsed = $route->parseUrl('/page');
+        $this->assertArrayHasKey('page_id',$parsed);
+        $this->assertTrue($parsed['page_id']==10);
+    }
+
     public function testParsingDefaultsOnlyUsedWhenNotInUrl() {
         $route = new RecursiveRoute('/page/:page_id/');
         $route->setDefaults(array(

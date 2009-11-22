@@ -15,6 +15,22 @@ class ValidatorsTest extends BaseTestCase
         $route->setValidators(array('default1','default2'));
     }
 
+    public function testValidatorsCanBeSuppliedInConstructor() {
+        $route = new RecursiveRoute(
+            '/page/:page_id/',
+            array(
+                'validators' => array(
+                    'page_id' => '/^\d+$/'
+                )
+            )
+        );
+
+        // 'someId' won't validate, so route won't match:
+        // param will be appended as key/value
+        $url = $route->createUrl(array('page_id'=>'someId'));
+        $this->assertEquals($url,'/page_id/someId/');
+    }
+    
     public function testParsingUsesValidator() {
         $route = $this->getRoute();
 
