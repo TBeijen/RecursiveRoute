@@ -109,7 +109,9 @@ class RecursiveRoute
 
 
     /**
-     * Will set defaults for given parameters
+     * Will set defaults for given parameters.
+     * Defaults are only allowed for params at the end of the route.
+     *
      * @param array $defaults
      */
     public function setDefaults(array $defaults) {
@@ -119,7 +121,33 @@ class RecursiveRoute
                     __METHOD__.': $defaults should be an assoc. array'
                 );
             }
-            unset ($this->requiredParamList[$key]);
+            // validate if default is for end part
+            $pos = array_search(':'.$key, $this->patternParts);
+            if ($pos !== false) {
+                // not valid if a part following this param exists in the
+                // patterns that:
+                //  a) is not a parameter, or:
+                //  b) is not in the given set of defaults
+                if (isset($this->patternParts[$pos+1])) {
+                    $valid = true;
+                    $patternPartExamined = $this->patternParts[$pos+1];
+                    if ($patternPartExamined[0] !== ':') {
+                        $valid = false;
+                    }
+                    $paramName = substr($patternPartExamined, 1);
+                    if (!array_key_exists($paramName, $defaults)) {
+                        $valid = false;
+                    }
+                    if (!$valid) {
+                        throw new RecursiveRoute_InvalidArgument_Exception(
+                            __METHOD__.': defaults can only be set for params ending the route definition'
+                        );
+                    }
+                }
+            }
+            $tempReqParam = array_flip($this->requiredParamList);
+            unset ($tempReqParam[$key]);
+            $this->requiredParamList = array_flip($tempReqParam);
         }
         $this->defaults = $defaults;
     }
@@ -157,13 +185,15 @@ class RecursiveRoute
         // (Only occcurs in root route as this method is not called on
         // subroutes if they're not a match)
         if ($this->isParseMatch($url)) {
+            $collectedParams = $this->defaults;
             for ( $i=0; $i<count($this->patternParts); $i++ ) {
                 $partPattern = $this->patternParts[$i];
-                $partUrl = $urlParts[$i];
 
                 if ($partPattern[0] === ':') {
                     $paramName = substr($partPattern, 1);
-                    $collectedParams[$paramName] = $partUrl;
+                    if (isset($urlParts[$i])) {
+                        $collectedParams[$paramName] = $urlParts[$i];
+                    }
                 }
             }
         }
@@ -340,6 +370,7 @@ class RecursiveRoute
             }
         } else {
            	$match = true;
+            // only check for params that don't have a default specified
             foreach($this->requiredParamList as $paramName) {
                 if( !isset($paramHash[$paramName])) {
                     $match = false;
@@ -377,7 +408,7 @@ class RecursiveRoute
 		$urlParts = $this->explode($url);
 
 		// check length, if shorter: no match
-		if (count($urlParts) < count($this->patternParts) ) {
+		if (count($urlParts) < (count($this->patternParts)-count($this->defaults)) ) {
 			return false;
 		}
 
@@ -386,11 +417,25 @@ class RecursiveRoute
         if( count($this->patternParts) > 0 ) {
 			for ( $i=0; $i<count($this->patternParts); $i++ ) {
 				$partPattern = $this->patternParts[$i];
-				$partUrl = $urlParts[$i];
 
 				if ( $partPattern[0] === ':') {
 					// param, check if a validator exists
                     $paramName = substr($partPattern, 1);
+                    
+                    $partUrl = false;
+                    if (isset($this->defaults[$paramName])) {
+                        $partUrl = $this->defaults[$paramName];
+                    }
+                    if (isset($urlParts[$i])) {
+        				$partUrl = $urlParts[$i];
+                    }
+                    // if somehow not set as default and not in the url:
+                    // no match
+                    if ($partUrl===false) {
+                        return false;
+                    }
+
+                    // part defined, validate if neccessary
                     if (isset($this->validators[$paramName])) {
                         if (!preg_match(
                             $this->validators[$paramName],
@@ -400,9 +445,12 @@ class RecursiveRoute
                             break;
                         }
                     }
-				} elseif ($partPattern !== $partUrl) {
-					$match = false;
-					break;
+				} else {
+                    $partUrl = $urlParts[$i];
+					if ($partPattern !== $partUrl) {
+                        $match = false;
+                        break;
+                    }
 				}
 			}
 		}
@@ -427,7 +475,14 @@ class RecursiveRoute
             if ($part[0] === ':') {
 					// variable, get it from params
                     $paramName = substr($part, 1);
-                    $constructedUrlParts[] = isset($params[$paramName]) ? $params[$paramName] : '';
+                    $paramValue = '';
+                    if (isset($this->defaults[$paramName])) {
+                        $paramValue = $this->defaults[$paramName];
+                    }
+                    if (isset($params[$paramName])) {
+                        $paramValue = $params[$paramName];
+                    }
+                    $constructedUrlParts[] = $paramValue;
                     $paramsProcessed[] = $paramName;
 				} else {
                     // simply add
