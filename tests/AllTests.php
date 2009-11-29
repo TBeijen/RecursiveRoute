@@ -4,6 +4,7 @@ require_once dirname(__FILE__) . '/OneLevelTest.php';
 require_once dirname(__FILE__) . '/RecursiveTest.php';
 require_once dirname(__FILE__) . '/DefaultsTest.php';
 require_once dirname(__FILE__) . '/ValidatorsTest.php';
+require_once dirname(__FILE__) . '/CreateFiltersTest.php';
 
 class RecursiveRoute_AllTests
 {
@@ -20,6 +21,7 @@ class RecursiveRoute_AllTests
         $suite->addTestSuite('RecursiveTest');
         $suite->addTestSuite('DefaultsTest');
         $suite->addTestSuite('ValidatorsTest');
+        $suite->addTestSuite('CreateFiltersTest');
         return $suite;
     }
 }

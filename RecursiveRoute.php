@@ -2,14 +2,13 @@
 class RecursiveRoute_InvalidArgument_Exception extends InvalidArgumentException {}
 
 /**
+ * (c) 2009 Tibo Beijen (http://www.tibobeijen.nl)
  *
  * @TODO match callback
  * @TODO subroutes restricted to certain param values (isn't that same as validators, no)
- *
- * @TODO urlencode/htmlencode = createFilters filters
- *
- *
- *
+ * @TODO change way url parts are transferred internally to avoid having to
+ * 'copy' filter methods to child routes (and thereby making it hard to manage
+ * filter order)
  */
 class RecursiveRoute {
     const SEPARATOR = '/';
@@ -50,34 +49,44 @@ class RecursiveRoute {
      *
      * @var array
      */
-    private $patternParts;
+    protected $patternParts;
 
     /**
      * List of subRouters in the order they were added
      *
      * @var array
      */
-    private $subRoutes = array();
+    protected $subRoutes = array();
 
     /**
      * All the variables defined in the pattern
      *
      * @var array
      */
-    private $definedParamList;
+    protected $definedParamList = array();
 
     /**
      * All the variables that are required
      *
      * @var array
      */
-    private $requiredParamList;
+    protected $requiredParamList = array();
 
 
     /**
+     * Array holding filters applied on parts when creating an url
      *
+     * @var array
+     */
+    protected $createFilters = array();
+
+
+    /**
+     * Constructor, accepting options array.
+     * Possible options: validators, defaults
      *
      * @param string $pattern
+     * @param array $options
      */
     public function __construct($pattern='', $options=array()) {
         $this->pattern = $pattern;
@@ -91,6 +100,12 @@ class RecursiveRoute {
         if (isset($options['defaults'])) {
             $this->setDefaults($options['defaults']);
         }
+
+        // add default urlEncode filter
+        array_push(
+            $this->createFilters,
+            array($this, 'filterCreateUrlEncode')
+        );
     }
 
 
@@ -175,6 +190,27 @@ class RecursiveRoute {
 
 
     /**
+     * Adds a method to the stack that will be applied when creating an url.
+     * Like the routes themselve, last edited will be applied first.
+     * 
+     * The method signature should be compatible with php's call_user_func 
+     * signature.
+     * 
+     * By default an url_encode filter is allready registered.
+     * 
+     * @param string|array $userFuncDefinition
+     */
+    public function addCreateFilter( $userFuncDefinition ) {
+        array_push($this->createFilters, $userFuncDefinition);
+
+        // propagate filter to subroutes
+        foreach($this->subRoutes as $subRoute) {
+            $subRoute->addCreateFilter( $userFuncDefinition );
+        }
+    }
+    
+
+    /**
      * Will parse a given url and return an array containing parameters
      *
      * @param string $url
@@ -225,7 +261,7 @@ class RecursiveRoute {
         if ($subRouteMatched !== true) {
             for($i=0; $i<count($urlRemainingParts); $i=$i+2) {
                 if(
-                isset($urlRemainingParts[$i]) &&
+                    isset($urlRemainingParts[$i]) &&
                     isset($urlRemainingParts[$i+1]) &&
                     !is_numeric($urlRemainingParts[$i])
                 ) {
@@ -255,7 +291,7 @@ class RecursiveRoute {
         // no problem if not a create match (delegate to children) unless
         // this route has a defined pattern and no params are given.
         if (
-        !$this->isCreateMatch($params) &&
+            !$this->isCreateMatch($params) &&
             count($params) < count($this->requiredParamList)
         ) {
             throw new RecursiveRoute_InvalidArgument_Exception(
@@ -478,7 +514,7 @@ class RecursiveRoute {
         $paramsProcessed = array();
         foreach($this->patternParts as $part) {
             if ($part[0] === ':') {
-            // variable, get it from params
+                // variable, get it from params
                 $paramName = substr($part, 1);
                 $paramValue = '';
                 if (isset($this->defaults[$paramName])) {
@@ -487,11 +523,17 @@ class RecursiveRoute {
                 if (isset($params[$paramName])) {
                     $paramValue = $params[$paramName];
                 }
-                $constructedUrlParts[] = $paramValue;
+                // apply filters
+                $paramValueFiltered = $this->applyCreateFilters(
+                    $paramValue,
+                    $paramName
+                );
+                $constructedUrlParts[] = $paramValueFiltered;
                 $paramsProcessed[] = $paramName;
             } else {
-            // simply add
-                $constructedUrlParts[] = $part;
+                // apply filter and add
+                $partFiltered = $this->applyCreateFilters($part);
+                $constructedUrlParts[] = $partFiltered;
             }
         }
 
@@ -517,8 +559,12 @@ class RecursiveRoute {
         $paramsProcessed = array();
 
         foreach($params as $key=>$value) {
-            $constructedUrlParts[] = $key;
-            $constructedUrlParts[] = $value;
+            // apply filters
+            $keyFiltered = $this->applyCreateFilters($key);
+            $valueFiltered = $this->applyCreateFilters($value, $key);
+
+            $constructedUrlParts[] = $keyFiltered;
+            $constructedUrlParts[] = $valueFiltered;
             $paramsProcessed[] = $key;
         }
 
@@ -574,5 +620,37 @@ class RecursiveRoute {
 
         $this->definedParamList = $arr_params;
         $this->requiredParamList = $arr_params;
+    }
+
+
+    /**
+     * Applies all the create filters. Last added first.
+     *
+     * @param string $value
+     * @param string $paramName
+     * @return string
+     */
+    protected function applyCreateFilters($value, $paramName='') {
+        $filters = array_reverse($this->createFilters);
+        $valueFiltered = $value;
+        foreach ($filters as $filterDef) {
+            if (!is_array($filterDef)) {
+            }
+            $valueFiltered = call_user_func($filterDef, $valueFiltered, $paramName);
+        }
+        return $valueFiltered;
+    }
+
+
+    /**
+     * Create filter that will rawurlencode() value.
+     *
+     * @param string $value
+     * @param string $paramName
+     * @return string
+     */
+    protected function filterCreateUrlEncode($value, $paramName='') {
+        $valueFiltered = rawurlencode($value);
+        return $valueFiltered;
     }
 }
